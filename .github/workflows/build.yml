@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on Java ${{ matrix.java }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 17 是 Folia 1.20.1 的运行要求；
+        # 21 用来确认未来升级 JDK 时不会因为语言特性或依赖解析而突然失败。
+        java: [ '17', '21' ]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 缓存 Gradle 依赖；paperweight 不需要，所以缓存很小（folia-api 约 2 MB）
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 设置 JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java }}
+
+      # 用 wrapper 构建，确保 CI 与本地行为一致
+      - name: 构建
+        run: ./gradlew build --no-daemon --stacktrace
+
+      # 把构建产物上传，方便 PR 审查时直接下载测试
+      - name: 上传 jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChunkLoaderController-java${{ matrix.java }}
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 14
+
+      # 把构建环境打到日志里 —— 排查"为什么 CI 能过本地不过"时需要
+      - name: 构建环境信息
+        run: ./gradlew printBuildInfo --no-daemon

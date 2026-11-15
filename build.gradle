@@ -1,0 +1,146 @@
+// ============================================================================
+//  ChunkLoaderController — Folia 1.20.1 区块加载控制器
+//
+//  这是一个【普通的 Java 插件】工程，不是 paperweight 工程。这个选择是刻意的：
+//
+//  本插件源码对 NMS（net.minecraft.*）【零编译期引用】—— 所有 NMS 访问都走反射
+//  （见 ticket/NmsBridge.java）。因此不需要 Mojang mappings，也就不需要
+//  paperweight 的 reobf 重映射步骤。
+//
+//  这对使用者意味着：
+//    paperweight 方案：首次构建要下载数百 MB 的 dev bundle
+//    本方案        ：只需要约 2 MB 的 folia-api
+//
+//  验证方法（任何人都能复核）：
+//    grep -rn "^import net.minecraft" src/     # 应当没有任何输出
+// ============================================================================
+
+plugins {
+    id 'java'
+}
+
+group = 'com.danny'
+version = '0.1.0'
+description = 'Folia 1.20.1 逐区块弱加载/强加载控制器，含权限、配额、审计与箱子 GUI'
+
+// ── 统一 Java 版本 ──────────────────────────────────────────────────────────
+// 用 toolchain 而不是 sourceCompatibility：这样无论本机装的是 JDK 17 还是 21，
+// Gradle 都会用正确的版本编译，别人 clone 后不会因为 JDK 版本不一致而失败。
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    // folia-api 只发布在 papermc 仓库，不在 Maven Central
+    maven {
+        name = 'papermc'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+    mavenCentral()
+}
+
+dependencies {
+    // 唯一的编译期依赖。
+    // Folia 的 API artifact 已包含 Bukkit + Paper API，所以不需要额外声明 bukkit。
+    compileOnly 'dev.folia:folia-api:1.20.1-R0.1-SNAPSHOT'
+
+    // 测试依赖（目前只有纯逻辑测试，不启动服务端）
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// ── 编译参数 ────────────────────────────────────────────────────────────────
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += [
+            '-Xlint:deprecation',
+            '-Xlint:unchecked',
+            '-Xlint:rawtypes',
+            '-Xlint:varargs'
+    ]
+}
+
+// ── 测试 ────────────────────────────────────────────────────────────────────
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+}
+
+// ── 产物 ────────────────────────────────────────────────────────────────────
+// 文件名保留版本号（ChunkLoaderController-0.1.0.jar）：开源项目发布时
+// 别人从 Releases 下载多个版本放在一起，带版本号才不会混淆。
+tasks.named('jar') {
+    archiveBaseName = 'ChunkLoaderController'
+    // 去掉 Gradle 默认的 -plain 之外可能的分类后缀；主产物就是可用的插件 jar
+    archiveClassifier = ''
+}
+
+// ── Javadoc ────────────────────────────────────────────────────────────────
+// 注释里用 HTML 是因为 Javadoc 本身就是 HTML 格式的（<p> / <ul> / <ol> / <b>
+// 都是它的标准标记），不是往注释里硬塞网页标签。
+//
+// 但必须关掉 doclint 的 missing 检查：
+//   -Xdoclint:all 会要求【每个】public 方法、每个 @param 都有完整注释，
+//   否则拒绝生成文档。对一个内部插件这不合理（大量 getter / 枚举常量
+//   的自解释性已经足够），也会让 ./gradlew javadoc 直接失败。
+// 保留 html / reference / syntax 三类 —— 它们才是真错误
+// （未转义的泛型尖括号、指向不存在成员的 @link、标签不闭合）。
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    options.docEncoding = 'UTF-8'
+    // ⚠ 这里是 boolean 选项而不是 string 选项。
+    // -Xdoclint:html,reference,syntax 本身是一个完整 token，不需要额外值。
+    // 之前误用 addStringOption('Xdoclint:...', '-quiet')，会生成
+    //   -Xdoclint:html,reference,syntax '-quiet'
+    // javadoc 把 '-quiet' 当成第二个 doclint 组名，报「未知 doclint group」。
+    options.addBooleanOption('Xdoclint:html,reference,syntax', true)
+    options.addBooleanOption('notimestamp', true)
+
+    // ⚠ 这一行是为了兼容【含中文的工程路径】。
+    //
+    // Gradle 把参数写进 javadoc.options（@argfile）时用 UTF-8，
+    // 而 javadoc 进程按平台默认编码（中文 Windows 上是 GBK）读这个文件，
+    // 于是路径里的中文被解错，javadoc 报「找不到文件: ...鍖哄潡鍔犺浇鍣╛...」，
+    // 实际源码完全正常。设置 sun.jnu.encoding 后它的文件路径编解码也走 UTF-8。
+    //
+    // 工程放在纯英文路径下时这个参数没有副作用；在 Linux/macOS 上
+    // sun.jnu.encoding 本来就是 UTF-8，同样无害。
+    options.jFlags('-Dsun.jnu.encoding=UTF-8', '-Dfile.encoding=UTF-8')
+
+    failOnError = true
+}
+
+// ── 把版本号写进 plugin.yml ────────────────────────────────────────────────
+// plugin.yml 里写死 ${version} 占位符，构建时替换。
+// 好处：版本号只有一个来源（build.gradle 的 version），不会忘记同步。
+//
+// ⚠ 必须先把 version 取到局部变量。
+// 直接写 expand(version: project.version) 会在【任务执行阶段】引用 project，
+// 与 Gradle 的 configuration cache 不兼容（实测报错：
+// "Invocation of 'project' references a Gradle script object from a Groovy
+//  closure at execution time"）。捕获局部变量后闭包不再持有 project。
+def pluginVersion = version
+tasks.named('processResources') {
+    filesMatching('plugin.yml') {
+        expand(version: pluginVersion)
+    }
+}
+
+// ── 构建信息 ────────────────────────────────────────────────────────────────
+tasks.register('printBuildInfo') {
+    group = 'help'
+    description = '打印构建环境信息，用于排查"为什么别人能编译我不能"'
+    doLast {
+        println "Java  : ${System.getProperty('java.version')} (${System.getProperty('java.vendor')})"
+        println "Gradle: ${gradle.gradleVersion}"
+        println "Target: Java ${java.toolchain.languageVersion.get().asInt()}"
+        println "Repo  : https://repo.papermc.io/repository/maven-public/"
+    }
+}

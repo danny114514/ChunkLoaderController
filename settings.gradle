@@ -1,0 +1,2 @@
+// 单模块工程。保持最小化：多模块只会增加 clone 后的理解成本。
+rootProject.name = 'ChunkLoaderController'

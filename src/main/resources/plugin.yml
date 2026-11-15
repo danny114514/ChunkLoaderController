@@ -1,0 +1,39 @@
+name: ChunkLoaderController
+# 版本号由构建注入（build.gradle 的 version）。只有一个来源，不会忘记同步。
+version: '${version}'
+main: com.danny.chunkloader.ChunkLoaderPlugin
+api-version: '1.20'
+# Folia 强制要求；缺失则服务端直接拒绝加载
+folia-supported: true
+
+description: Folia 1.20.1 区块加载控制器 —— 逐区块弱加载/强加载，含权限与配额
+authors: [Danny]
+website: https://github.com/danny114514/ChunkLoaderController
+
+# ── 权限（共 4 个节点，纯 LuckPerms）────────────────────────────────────────
+permissions:
+  chunkloader.use:
+    description: 打开 GUI、控制自己脚下的区块（仍受配额限制）
+    default: true
+  chunkloader.admin.others:
+    description: 查看/修改/撤销他人受控区块、admin status、admin selftest
+    default: op
+  chunkloader.admin.log:
+    description: 查看审计日志 /cl admin log
+    default: op
+  chunkloader.admin.reload:
+    description: 重载配置 /cl admin reload
+    default: op
+
+# ── 命令 ────────────────────────────────────────────────────────────────────
+commands:
+  chunkloader:
+    description: 区块加载控制器主命令
+    usage: |
+      /cl                        打开周围区块地图
+      /cl info                   查看脚下区块详情
+      /cl list [页]              列出自己受控的区块
+      /cl set <weak|strong|none> 设置脚下区块
+      /cl release all            释放自己的全部区块
+      /cl admin ...              管理员子命令
+    aliases: [cl]
