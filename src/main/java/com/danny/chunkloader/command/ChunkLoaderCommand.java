@@ -68,7 +68,19 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
     /** {@code /cl} 无参数：打开区块地图（控制台则给出提示）。 */
     private boolean openGui(CommandSender sender) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("§e控制台无法打开 GUI。可用: /cl info · /cl list · /cl admin ...");
+            // 这里只列【控制台真的能用】的命令。
+            // 早期版本写的是「可用: /cl info · /cl list」，但那两条都要玩家位置，
+            // 控制台执行只会被拒绝 —— 先推荐再拒绝是最糟糕的用户体验。
+            sender.sendMessage("§eGUI 需要玩家客户端，控制台无法打开。");
+            sender.sendMessage("§7控制台可用的命令：");
+            sender.sendMessage("§f  /cl admin status §8- 全局用量、实测已加载数、各区块实际等级");
+            sender.sendMessage("§f  /cl admin list <玩家> §8- 某玩家控制了哪些区块");
+            sender.sendMessage("§f  /cl admin set <玩家> <x> <z> <状态> §8- 直接设置某个区块");
+            sender.sendMessage("§f  /cl admin release <玩家|all> §8- 撤销");
+            sender.sendMessage("§f  /cl admin log [玩家] [页] §8- 审计日志");
+            sender.sendMessage("§f  /cl admin selftest §8- 实测 ticket 是否生效");
+            sender.sendMessage("§f  /cl admin reload §8- 重载配置");
+            sender.sendMessage("§8（/cl info 等命令需要玩家所在的世界与位置，无法在控制台执行）");
             return true;
         }
         if (!CommandSupport.require(sender, "chunkloader.use")) {
@@ -78,16 +90,37 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    /**
+     * 帮助信息。
+     *
+     * <p>控制台与玩家看到的列表不同 —— 玩家的 {@code /cl}、{@code /cl info}
+     * 等命令都依赖「所在世界与位置」，在控制台执行只会被拒绝。
+     * 帮助里列出用不了的命令，与「先推荐再拒绝」是同一类问题。</p>
+     */
     private void printHelp(CommandSender sender) {
         CommandSupport.divider(sender);
         sender.sendMessage("§6§l区块加载控制器 §7v" + plugin.getPluginMeta().getVersion());
         CommandSupport.divider(sender);
-        sender.sendMessage("§f/cl §8- 打开周围区块地图（GUI）");
-        sender.sendMessage("§f/cl info §8- 脚下区块的持有者 / 意图状态 / 实际等级 / 配额");
-        sender.sendMessage("§f/cl list [页] §8- 列出自己受控的区块");
-        sender.sendMessage("§f/cl set <weak|strong|none> §8- 设置脚下区块");
-        sender.sendMessage("§f/cl release all §8- 释放自己的全部区块");
-        sender.sendMessage("§f/cl admin <...> §8- 管理员命令（见 /cl admin）");
+
+        if (sender instanceof Player) {
+            sender.sendMessage("§f/cl §8- 打开周围区块地图（GUI）");
+            sender.sendMessage("§f/cl info §8- 脚下区块的持有者 / 意图状态 / 实际等级 / 配额");
+            sender.sendMessage("§f/cl list [页] §8- 列出自己受控的区块");
+            sender.sendMessage("§f/cl set <weak|strong|none> §8- 设置脚下区块");
+            sender.sendMessage("§f/cl release all §8- 释放自己的全部区块");
+            sender.sendMessage("§f/cl admin <...> §8- 管理员命令（见 /cl admin）");
+        } else {
+            // 控制台：只列真正能执行的
+            sender.sendMessage("§7控制台只能使用管理员命令（其余命令需要玩家位置）：");
+            sender.sendMessage("§f/cl admin status §8- 全局用量、实测已加载数、各区块实际等级");
+            sender.sendMessage("§f/cl admin list <玩家> §8- 某玩家控制了哪些区块");
+            sender.sendMessage("§f/cl admin set <玩家> <x> <z> <状态> §8- 直接设置");
+            sender.sendMessage("§f/cl admin release <玩家|all> §8- 撤销");
+            sender.sendMessage("§f/cl admin log [玩家] [页] §8- 审计日志");
+            sender.sendMessage("§f/cl admin selftest §8- 实测 ticket 是否生效");
+            sender.sendMessage("§f/cl admin reload §8- 重载配置");
+        }
+
         CommandSupport.divider(sender);
         sender.sendMessage("§7状态说明：§a强加载§7=实体刻运行（31） · §e弱加载§7=仅方块刻（32）");
         sender.sendMessage("§7弱加载：作物/熔炉/漏斗正常，§c实体冻结§7（掉落物不动、怪物不动、刷怪塔不产出）");

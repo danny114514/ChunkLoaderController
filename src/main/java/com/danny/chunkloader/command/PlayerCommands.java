@@ -43,7 +43,7 @@ public final class PlayerCommands {
         if (!require(sender, "chunkloader.use")) {
             return true;
         }
-        Player player = requirePlayer(sender, "info");
+        Player player = requirePlayer(sender, "info", "/cl admin status（看全部受控区块的实测等级）");
         if (player == null) {
             return true;
         }
@@ -110,7 +110,7 @@ public final class PlayerCommands {
         if (!require(sender, "chunkloader.use")) {
             return true;
         }
-        Player player = requirePlayer(sender, "list");
+        Player player = requirePlayer(sender, "list", "/cl admin list <玩家>");
         if (player == null) {
             return true;
         }
@@ -180,7 +180,7 @@ public final class PlayerCommands {
         if (!require(sender, "chunkloader.use")) {
             return true;
         }
-        Player player = requirePlayer(sender, "set");
+        Player player = requirePlayer(sender, "set", "/cl admin set <玩家> <x> <z> <状态>");
         if (player == null) {
             return true;
         }
@@ -206,7 +206,7 @@ public final class PlayerCommands {
         if (!require(sender, "chunkloader.use")) {
             return true;
         }
-        Player player = requirePlayer(sender, "release");
+        Player player = requirePlayer(sender, "release", "/cl admin release <玩家|all>");
         if (player == null) {
             return true;
         }

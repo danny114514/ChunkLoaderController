@@ -40,14 +40,30 @@ public final class CommandSupport {
     /**
      * 要求发送者是玩家。
      *
+     * <p>控制台被拒绝时，提示里必须给出「那该用什么」—— 只说「只能由玩家执行」
+     * 会让管理员卡住，尤其 {@code /cl info} 这种排查问题时最想用的命令。
+     * 这里的替代建议是按命令区分的，不是一句通用安慰话。</p>
+     *
+     * @param what    命令名（用于提示，如 {@code info}）
+     * @param hintFor 控制台可用的替代命令；传 {@code null} 表示没有直接替代
      * @return 玩家对象；不是玩家时返回 {@code null}（已回话）
      */
-    public static Player requirePlayer(CommandSender sender, String what) {
+    public static Player requirePlayer(CommandSender sender, String what, String hintFor) {
         if (sender instanceof Player player) {
             return player;
         }
-        sender.sendMessage("§c/cl " + what + " 只能由玩家执行（需要所在世界与位置）");
+        sender.sendMessage("§c/cl " + what + " 需要玩家所在的世界与位置，控制台无法执行。");
+        if (hintFor != null && !hintFor.isBlank()) {
+            sender.sendMessage("§7控制台可以用：§f" + hintFor);
+        }
         return null;
+    }
+
+    /**
+     * 兼容旧调用的重载：没有替代命令时也能给出方向。
+     */
+    public static Player requirePlayer(CommandSender sender, String what) {
+        return requirePlayer(sender, what, null);
     }
 
     /** 第一个已加载的世界；没有则返回 {@code null}。 */
