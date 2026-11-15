@@ -59,7 +59,10 @@ jobs:
           echo "发布版本: $VERSION"
 
       - name: 构建
-        run: ./gradlew clean build --no-daemon --stacktrace -Pversion=${{ steps.version.outputs.VERSION }}
+        # 注意用 -PreleaseVersion 而不是 -Pversion：
+        # Gradle 的 project.version 是内置属性，默认值 "unspecified" 是真值，
+        # 用 findProperty('version') 会把回退值吃掉，产出无版本号的 jar。
+        run: ./gradlew clean build --no-daemon --stacktrace -PreleaseVersion=${{ steps.version.outputs.VERSION }}
 
       - name: 校验产物
         run: |

@@ -23,10 +23,18 @@ group = 'com.danny'
 
 // ── 版本号 ──────────────────────────────────────────────────────────────────
 // 默认值用于本地开发；发布时由 GitHub Actions 用 tag 覆盖：
-//     ./gradlew build -Pversion=1.2.3
+//     ./gradlew build -PreleaseVersion=1.2.3
 // 这样「tag 名」是唯一的版本来源，jar 文件名与 Release 永远一致。
-// 判断写在配置阶段而不是任务里 —— 与 configuration cache 兼容。
-version = findProperty('version') ?: '0.1.0'
+//
+// ⚠ 属性名【不能】叫 version。
+// Gradle 的 project.version 是内置属性，未设置时的默认值是字符串 "unspecified"——
+// 而 "unspecified" 是真值，所以
+//     version = findProperty('version') ?: '0.1.0'
+// 会得到 "unspecified"，`:?` 永远不生效。
+// 实测后果：jar 变成 ChunkLoaderController.jar（没版本号），
+// 且 plugin.yml 里写着 version: 'unspecified'，发布出去就是错的。
+// 用一个独立名字（releaseVersion）彻底避开这个坑。
+version = findProperty('releaseVersion') ?: '0.1.0'
 
 description = 'Folia 1.20.1 逐区块弱加载/强加载控制器，含权限、配额、审计与箱子 GUI'
 
