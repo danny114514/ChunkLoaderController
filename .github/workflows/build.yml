@@ -46,6 +46,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # 把构建环境打到日志里 —— 排查"为什么 CI 能过本地不过"时需要
-      - name: 构建环境信息
-        run: ./gradlew printBuildInfo --no-daemon
+      # 说明：这里刻意【不】跑 ./gradlew printBuildInfo。
+      #   1. 它会再启动一次 Gradle（CI 上约 15 秒），而 setup-java 已经打印过 JDK 版本；
+      #   2. 它是给人排查「为什么别人能编我不能」用的本地工具，
+      #      不应该因为一个诊断任务失败把整个构建标红。
+      # 本地需要时直接跑：./gradlew printBuildInfo
+

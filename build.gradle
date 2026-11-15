@@ -134,13 +134,25 @@ tasks.named('processResources') {
 }
 
 // ── 构建信息 ────────────────────────────────────────────────────────────────
+// ⚠ 这里同样踩过 configuration cache 的坑：
+// 在 doLast 闭包里直接写 gradle.gradleVersion / java.toolchain... 会报
+//   "Cannot reference a Gradle script object from a Groovy closure as these
+//    are not supported with the configuration cache"
+// 原因和上面 processResources 一样 —— 闭包在执行阶段持有了 script 对象。
+// 解决办法：把这些值在【配置阶段】先取到局部变量（普通 String/int），
+// 闭包只捕获这些不可变值，就不再引用 Gradle 内部对象。
+def buildInfoJavaVersion = System.getProperty('java.version')
+def buildInfoJavaVendor = System.getProperty('java.vendor')
+def buildInfoGradleVersion = gradle.gradleVersion
+def buildInfoTargetJava = java.toolchain.languageVersion.get().asInt()
+
 tasks.register('printBuildInfo') {
     group = 'help'
     description = '打印构建环境信息，用于排查"为什么别人能编译我不能"'
     doLast {
-        println "Java  : ${System.getProperty('java.version')} (${System.getProperty('java.vendor')})"
-        println "Gradle: ${gradle.gradleVersion}"
-        println "Target: Java ${java.toolchain.languageVersion.get().asInt()}"
+        println "Java  : ${buildInfoJavaVersion} (${buildInfoJavaVendor})"
+        println "Gradle: ${buildInfoGradleVersion}"
+        println "Target: Java ${buildInfoTargetJava}"
         println "Repo  : https://repo.papermc.io/repository/maven-public/"
     }
 }
