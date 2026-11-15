@@ -1,7 +1,11 @@
 # ChunkLoaderController
 
-[![Build](https://github.com/danny114514/ChunkLoaderController/actions/workflows/build.yml/badge.svg)](https://github.com/danny114514/ChunkLoaderController/actions/workflows/build.yml)
+[![Build Check](https://github.com/danny114514/ChunkLoaderController/actions/workflows/check.yml/badge.svg)](https://github.com/danny114514/ChunkLoaderController/actions/workflows/check.yml)
+[![Release](https://github.com/danny114514/ChunkLoaderController/actions/workflows/release.yml/badge.svg)](https://github.com/danny114514/ChunkLoaderController/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> **下载**：去 [Releases](https://github.com/danny114514/ChunkLoaderController/releases) 拿最新的
+> `ChunkLoaderController-<版本>.jar`。不需要自己编译。
 
 **Folia 1.20.1 的区块加载控制器**：按**单个区块**设置弱加载 / 强加载，带权限、配额、审计与箱子 GUI。
 

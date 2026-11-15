@@ -1,0 +1,62 @@
+# ============================================================================
+#  构建检查（Pull Request / push 到 main 时触发）
+#
+#  这里只做「能不能编译、测试过不过」，不产出给用户下载的文件。
+#  真正发布在 release.yml（打 tag 时触发）。
+#
+#  为什么用 JDK 17 + 21 两个版本跑：
+#    插件运行时要求 Java 17+，但服务器管理员可能用 21 甚至更高版本运行。
+#    toolchain 保证了字节码目标是 17，双版本跑是为了确认「在 21 上也能编译」，
+#    防止某天用到了只有更高 JDK 才有的 API 却没被发现。
+#    ⚠ 注意：两个版本的产物是【同一个 jar】，所以这里【只验证、不发布】。
+#       早期版本误把两个 jar 都传成 artifact，让人不知道该下哪个，已修正。
+# ============================================================================
+name: Build Check
+
+on:
+  push:
+    branches: [ main ]
+    # 打 tag 时走 release.yml，不要在这里重复跑
+    tags-ignore: [ '**' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on Java ${{ matrix.java }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '17', '21' ]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Gradle（含依赖缓存）
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 设置 JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java }}
+
+      - name: 构建（编译 + 单元测试 + 文档）
+        run: ./gradlew build javadoc --no-daemon --stacktrace
+
+      # 校验产出的 jar 确实存在且只有一个（防止 archiveClassifier 配错导致
+      # 出现 -plain / -dev 之类的多余文件）
+      - name: 校验产物
+        run: |
+          set -e
+          ls -l build/libs/
+          count=$(ls build/libs/*.jar 2>/dev/null | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::期望 build/libs 下只有 1 个 jar，实际 $count 个"
+            exit 1
+          fi
+          echo "产物: $(ls build/libs/*.jar)"

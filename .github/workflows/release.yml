@@ -1,0 +1,146 @@
+# ============================================================================
+#  发布（打 tag 时触发）
+#
+#  用法：
+#     git tag 0.2.0
+#     git push origin 0.2.0
+#
+#  会做的事：
+#    1. 用 tag 作为版本号构建（jar 文件名里的版本 = tag，不会脱节）
+#    2. 创建 GitHub Release，附上 jar 与自动生成的更新说明
+#
+#  Release 创建后【可以在 GitHub 网页上手动编辑】：标题、描述、附件都能改。
+#  这是刻意的设计 —— 自动生成的内容只是草稿，正式说明应该由人来写。
+#  如果你想先写好说明再发布，把下面的 draft 改成 true，
+#  它就只创建草稿，你在网页上编辑完再点 Publish。
+# ============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+# 创建 Release 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  # ── 第一步：构建并校验 ────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 发布统一使用 JDK 17：这是 Folia 1.20.1 的运行基线，
+      # 也是 build.gradle 里 toolchain 指定的目标。
+      # 不在发布流程里跑双版本 —— 两个 JDK 产出的 jar 是同一个东西。
+      - name: 设置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 从 tag 解析版本号
+        id: version
+        run: |
+          # GITHUB_REF 形如 refs/tags/0.2.0
+          VERSION="${GITHUB_REF#refs/tags/}"
+          # 允许 tag 带前缀（如 v0.2.0），但 jar 版本号去掉前缀更常规
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "发布版本: $VERSION"
+
+      - name: 构建
+        run: ./gradlew clean build --no-daemon --stacktrace -Pversion=${{ steps.version.outputs.VERSION }}
+
+      - name: 校验产物
+        run: |
+          set -e
+          ls -l build/libs/
+          count=$(ls build/libs/*.jar 2>/dev/null | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::期望 build/libs 下只有 1 个 jar，实际 $count 个"
+            exit 1
+          fi
+          # 确认 jar 文件名里的版本号确实是 tag 解析出来的那个
+          expected="ChunkLoaderController-${{ steps.version.outputs.VERSION }}.jar"
+          if [ ! -f "build/libs/$expected" ]; then
+            echo "::error::产出的 jar 名字不是 $expected"
+            exit 1
+          fi
+          echo "校验通过: $expected"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-jar
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── 第二步：创建 Release ──────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码（用于取 CHANGELOG）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-jar
+          path: dist
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 用 tag 名作为 Release 标题
+          name: ${{ needs.build.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+
+          # draft: false = 立即发布，所有人都能下载。
+          # 想先编辑再发布就改成 true（Release 会保持草稿状态，
+          # 你在网页上写完说明再点 Publish）。
+          draft: false
+          prerelease: false
+
+          # 自动生成的说明；创建后可在网页上随时修改
+          generate_release_notes: true
+          body: |
+            ## 安装
+
+            1. 需要 **Folia 1.20.1**（build 17 实测通过）+ **Java 17+**
+            2. 把 `ChunkLoaderController-${{ needs.build.outputs.version }}.jar` 放进 `plugins/`
+            3. 启动服务端，**立刻执行 `/cl admin selftest`** 确认弱加载可用
+
+            > 弱加载依赖 NMS 反射。换了服务端构建后请重跑 selftest，
+            > 失败时插件不会崩溃，只是弱加载置灰、强加载照常可用。
+
+            ## 必读
+
+            使用前请先读 [README](https://github.com/${{ github.repository }}#readme)
+            里的「六条诚实声明」—— 尤其是：
+
+            - 弱加载在玩家视距内**不会生效**，它的作用是玩家离开后保活
+            - 弱加载的邻居是 33，**跨区块边界的红石/流体不工作**
+            - 强加载会免费把四邻变成弱加载，1 格 ≈ 13 格已加载
+
+          files: |
+            dist/*.jar
+
+          # 让 Release 里的资产替换掉同名旧文件（重打同一个 tag 时不出错）
+          fail_on_unmatched_files: true
