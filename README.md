@@ -88,7 +88,14 @@ SQLite 驱动由服务端自带（`org.xerial:sqlite-jdbc`，在 `libraries.list
 | `/cl` | `chunkloader.use` | 打开周围区块地图（GUI） |
 | `/cl info` | `chunkloader.use` | 脚下区块：持有者 / 意图 / 实际等级 / 配额 |
 | `/cl list [页]` | `chunkloader.use` | 自己受控的区块 |
-| `/cl set <weak\|strong\|none>` | `chunkloader.use` | 设置**脚下**区块 |
+| `/cl set <weak\|strong\|reserve\|none>` | `chunkloader.use` | 设置**脚下**区块 |
+| `/cl group create <名字>` | `chunkloader.use` | 新建群组 |
+| `/cl group add <名字>` | `chunkloader.use` | 把脚下区块加入群组 |
+| `/cl group remove` | `chunkloader.use` | 把脚下区块移出群组（仍归你） |
+| `/cl group set <名字> <weak\|strong\|reserve>` | `chunkloader.use` | 批量切换整组状态 |
+| `/cl group list` / `show <名字>` | `chunkloader.use` | 查看群组 |
+| `/cl group rename <旧> <新>` | `chunkloader.use` | 改名 |
+| `/cl group delete <名字>` | `chunkloader.use` | 删群组（组内区块被释放） |
 | `/cl release all` | `chunkloader.use` | 释放自己在本世界的全部区块 |
 | `/cl admin list <玩家>` | `chunkloader.admin.others` | 查看他人受控区块 |
 | `/cl admin set <玩家> <x> <z> <状态>` | `chunkloader.admin.others` | 直接设置（方块坐标） |
@@ -99,6 +106,9 @@ SQLite 驱动由服务端自带（`org.xerial:sqlite-jdbc`，在 `libraries.list
 | `/cl admin reload` | `chunkloader.admin.reload` | 重载配置（不追溯已有记录） |
 
 **没有状态机**：所有命令一次进、一次出，不需要 `confirm` 之类的多轮交互。
+
+**控制台只能用 `/cl admin` 系列** —— 其余命令都需要玩家所在的世界与位置。
+在控制台执行它们会被明确告知该用什么替代命令，而不是含糊地拒绝。
 
 ---
 
@@ -114,15 +124,57 @@ SQLite 驱动由服务端自带（`org.xerial:sqlite-jdbc`，在 `libraries.list
 - Lore 里有该区块的方块坐标范围
 - 中心格带 `▶ 你在这里`
 - **左键升级**：未控制 → 弱加载 → 强加载
-- **右键降级**：强加载 → 弱加载 → 未控制（降到底 = 释放）
+- **右键降级**：强加载 → 弱加载 → 保留（降到底也不会变无主）
+- **Shift+左键** = 加入/移出群组
 - 名称 + 材质 = **你的设置**（稳定，不闪）
 - Lore 第一行 = **实际等级**（运行时真实值）
+
+**为什么右键降级不会把区块变回「未控制」**：那等于放弃归属，别人立刻能抢。
+一次右键就丢地太危险。要真正释放请用 `/cl set none` 或 `/cl release all`。
 
 **为什么只能操作视野内的区块**：这是防远程圈地的**有意设计**。区块加载要消耗 CPU，允许远程指定坐标就等于允许任何人在几分钟内占满地图。
 
 ### 视图 B · 我的受控区块
 
 列出你已控制的区块，**可以远程改状态或释放**，但**不能远程新增**——新增必须走到那里打开地图。
+
+---
+
+## 群组
+
+群组是**「给一批区块起个名字，方便批量操作」**，不是权限系统，也不是领地保护。
+
+```bash
+/cl group create 农场        # 建一个群组
+/cl group add 农场           # 把脚下区块加进去（GUI 里 Shift+左键 也行）
+/cl group set 农场 weak      # 整组一次性改成弱加载
+/cl group show 农场          # 看组里有哪些区块
+/cl group delete 农场        # 删群组（组内区块会被释放给所有人）
+```
+
+| 约束 | 行为 |
+|---|---|
+| 归属 | **私有**：只有创建者能看见和操作自己的群组 |
+| 一个区块 | 最多属于**一个**群组（像文件夹，不是标签） |
+| 单个区块 | 仍可在 GUI 里单独改加载状态，群组只是批量入口 |
+| 批量设置 | 只接受 `weak / strong / reserve`，**不能设成 `none`** |
+| 删除群组 | 组内区块**全部释放**为「未控制」，他人可以认领 |
+
+### 第四种状态：保留（reserve）
+
+这是配合群组新增的状态，**必须与「未控制」区分开**：
+
+| 状态 | 有主？ | 加载？ | 占用配额 | 他人能否认领 |
+|---|---|---|---|---|
+| 未控制 | ❌ 无主 | ❌ | ❌ | **能** |
+| **保留** | ✅ 有主 | ❌ 不加载 | ✅ **占** | **不能** |
+| 弱加载 | ✅ | ✅ 方块刻 | ✅ | 不能 |
+| 强加载 | ✅ | ✅ 实体刻+方块刻 | ✅ | 不能 |
+
+「保留」解决的正是你的需求：**群组里的区块切到不加载之后，别人仍然抢不走**。
+如果这时按旧规则删掉记录，归属就丢了——那等于谁都能来捡。
+
+代价是它仍然占配额。否则玩家把区块全设成保留就能无限圈地。
 
 ---
 
@@ -160,19 +212,21 @@ log-retention-days: 90           # 审计日志保留
 
 ## 彩蛋
 
-有一个闲聊彩蛋。 —— 但是写出来就不叫彩蛋了，留给玩家自己去撞。
+有一个跟主要功能无关的小彩蛋，默认开启。**触发条件和效果都不在文档里** —— 写出来就没意思了。
 
-管理员需要知道的只有这些：
+管理员只需要知道配置项在哪：
 
 ```yaml
 easter-egg:
   enabled: true            # false = 完全关闭
-  mode: lightning          # lightning = 真实 | effect = 只有视觉
-  cooldown-seconds: 5      # 防止连续触发
+  mode: lightning          # 行为模式，两个合法值二选一
+  cooldown-seconds: 5      # 冷却，防止短时间反复触发
 ```
 
-- 默认是**真实**模式。不想承担这个风险就把 `mode` 改成 `effect`
-- 改完 `/cl admin reload` 立刻生效
+改完 `/cl admin reload` 立刻生效，不需要重启。
+
+> 想看具体实现就去看 `egg/` 包下的源码。注释和配置里刻意不描述机制：
+> 这两处是所有人都会打开的地方，答案放在那儿就没有惊喜了。
 
 
 ---

@@ -10,9 +10,11 @@ import com.danny.chunkloader.model.ChunkControl;
 import com.danny.chunkloader.platform.FoliaSupport;
 import com.danny.chunkloader.selftest.SelfTest;
 import com.danny.chunkloader.service.ChunkControlService;
+import com.danny.chunkloader.service.GroupService;
 import com.danny.chunkloader.service.QuotaService;
 import com.danny.chunkloader.storage.AuditLogDao;
 import com.danny.chunkloader.storage.ChunkControlDao;
+import com.danny.chunkloader.storage.ChunkGroupDao;
 import com.danny.chunkloader.storage.Database;
 import com.danny.chunkloader.ticket.FoliaTicketController;
 import com.danny.chunkloader.ticket.NmsBridge;
@@ -41,11 +43,13 @@ public final class ChunkLoaderPlugin extends JavaPlugin {
     private PluginConfig config;
     private Database database;
     private ChunkControlDao chunkDao;
+    private ChunkGroupDao groupDao;
     private AuditLogDao auditDao;
     private NmsBridge nmsBridge;
     private TicketController tickets;
     private QuotaService quota;
     private ChunkControlService control;
+    private GroupService groups;
     private ChunkMapGui mapGui;
     private MyChunksGui myChunksGui;
     private EasterEggListener easterEgg;
@@ -83,6 +87,7 @@ public final class ChunkLoaderPlugin extends JavaPlugin {
         try {
             this.database = Database.open(dbFile.getAbsolutePath());
             this.chunkDao = new ChunkControlDao(database);
+            this.groupDao = new ChunkGroupDao(database);
             this.auditDao = new AuditLogDao(database);
         } catch (SQLException e) {
             LOG.log(Level.SEVERE, "数据库初始化失败，插件无法工作", e);
@@ -103,6 +108,7 @@ public final class ChunkLoaderPlugin extends JavaPlugin {
         // ── 4. 业务服务 ─────────────────────────────────────────────────────
         this.quota = new QuotaService(chunkDao);
         this.control = new ChunkControlService(chunkDao, auditDao, quota, tickets, () -> config);
+        this.groups = new GroupService(groupDao, chunkDao, auditDao, quota, tickets, () -> config);
 
         // ── 5. 启动恢复：按数据库记录全量重建 ticket ────────────────────────
         // 这一步是「重启后区块仍然受控」的实现：数据库是事实来源，启动时全量重建 ticket。
@@ -125,10 +131,10 @@ public final class ChunkLoaderPlugin extends JavaPlugin {
         this.easterEgg = new EasterEggListener(this);
         getServer().getPluginManager().registerEvents(easterEgg, this);
         if (config.easterEggEnabled()) {
-            // 日志里不写触发词：服务端日志会被很多人看到（包括备份、工单附件），
-            // 写出来就等于公开剧透。只声明「有这么一个东西、它是开的」。
-            LOG.info("彩蛋已启用（" + config.easterEggMode()
-                    + " 模式，冷却 " + config.easterEggCooldownSeconds() + " 秒）");
+            // 日志里既不写触发词，也不写 mode 值 ——
+            // 服务端日志会被很多人看到（备份、工单附件、求助截图），
+            // 而 mode 的值本身就是线索。只声明「有这么一个东西、它是开的」。
+            LOG.info("彩蛋已启用（可在配置中关闭）");
         }
 
         PluginCommand command = getCommand("chunkloader");
@@ -216,6 +222,16 @@ public final class ChunkLoaderPlugin extends JavaPlugin {
 
     public ChunkControlDao chunks() {
         return chunkDao;
+    }
+
+    /** 群组数据访问。 */
+    public ChunkGroupDao groupDao() {
+        return groupDao;
+    }
+
+    /** 群组业务服务。 */
+    public GroupService groups() {
+        return groups;
     }
 
     public AuditLogDao audit() {

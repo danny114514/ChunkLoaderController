@@ -26,8 +26,16 @@ public final class Database implements AutoCloseable {
 
     private static final Logger LOG = Logger.getLogger("ChunkLoaderController");
 
-    /** 建表语句；全部 IF NOT EXISTS，可重复执行。 */
-    private static final String[] SCHEMA = {
+    /**
+     * 建表语句；全部 IF NOT EXISTS，可重复执行。
+     *
+     * <p><b>⚠ 这里只放 CREATE TABLE，不放 CREATE INDEX。</b>
+     * 索引依赖列存在，而旧表可能缺那些列（需要先 {@link #migrate()} 补上）。
+     * 曾经把 {@code CREATE INDEX ... ON chunk_control(group_id)} 放在这里，
+     * 结果在旧库上直接炸：{@code SQLITE_ERROR: no such column: group_id} ——
+     * 插件初始化失败、整个插件被禁用。索引统一见 {@link #INDEXES}。</p>
+     */
+    private static final String[] TABLES = {
             """
             CREATE TABLE IF NOT EXISTS chunk_control (
               world      TEXT    NOT NULL,
@@ -37,10 +45,16 @@ public final class Database implements AutoCloseable {
               state      INTEGER NOT NULL,
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL,
+              group_id   INTEGER,
               PRIMARY KEY (world, chunk_x, chunk_z)
             )""",
-            "CREATE INDEX IF NOT EXISTS idx_owner ON chunk_control(owner)",
-            "CREATE INDEX IF NOT EXISTS idx_world ON chunk_control(world)",
+            """
+            CREATE TABLE IF NOT EXISTS chunk_group (
+              id         INTEGER PRIMARY KEY AUTOINCREMENT,
+              owner      TEXT    NOT NULL,
+              name       TEXT    NOT NULL,
+              created_at INTEGER NOT NULL
+            )""",
             """
             CREATE TABLE IF NOT EXISTS audit_log (
               id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +67,19 @@ public final class Database implements AutoCloseable {
               action     TEXT    NOT NULL,
               result     TEXT    NOT NULL,
               reason     TEXT
-            )""",
+            )"""
+    };
+
+    /**
+     * 索引语句。必须在 {@link #migrate()} <b>之后</b>执行 ——
+     * 否则在缺列的旧表上会失败。
+     */
+    private static final String[] INDEXES = {
+            "CREATE INDEX IF NOT EXISTS idx_owner ON chunk_control(owner)",
+            "CREATE INDEX IF NOT EXISTS idx_world ON chunk_control(world)",
+            "CREATE INDEX IF NOT EXISTS idx_chunk_group ON chunk_control(group_id)",
+            // 群组私有：同一所有者的群组名唯一。不同玩家可以用同一个名字。
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_group_owner_name ON chunk_group(owner, name)",
             "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts)",
             "CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor)"
     };
@@ -119,14 +145,73 @@ public final class Database implements AutoCloseable {
         }
     }
 
+    /**
+     * 初始化数据库结构。顺序不能变：
+     *
+     * <ol>
+     *   <li><b>建表</b>（IF NOT EXISTS）—— 新库在这里成型</li>
+     *   <li><b>迁移</b> —— 给旧库补上后来新增的列</li>
+     *   <li><b>建索引</b> —— 索引可能引用迁移出来的列，必须放最后</li>
+     * </ol>
+     *
+     * <p>把索引放在第 1 步会炸：旧表还没有 {@code group_id} 列，
+     * {@code CREATE INDEX ... (group_id)} 直接报
+     * {@code no such column}，然后插件初始化失败、整个插件被禁用。</p>
+     */
     private void createSchema() throws SQLException {
+        executeAll(TABLES, "建表失败");
+        migrate();
+        executeAll(INDEXES, "建索引失败");
+    }
+
+    private void executeAll(String[] statements, String errorPrefix) throws SQLException {
         lock.lock();
         try (Statement st = connection.createStatement()) {
-            for (String ddl : SCHEMA) {
+            for (String ddl : statements) {
                 st.execute(ddl);
             }
         } catch (SQLException e) {
-            throw new SQLException("建表失败: " + e.getMessage(), e);
+            throw new SQLException(errorPrefix + ": " + e.getMessage(), e);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * 老版本数据库的结构升级。
+     *
+     * <p>{@code CREATE TABLE IF NOT EXISTS} 对已存在的表完全不做改动，
+     * 所以给旧表加列必须单独做。服务器上已经有真实数据，不能靠「删库重建」。</p>
+     *
+     * <p>做法：先查 {@code PRAGMA table_info} 看列在不在，不在才 ALTER。
+     * 不用「直接 ALTER 然后吞掉异常」—— 那样会掩盖真正的迁移错误。</p>
+     */
+    private void migrate() throws SQLException {
+        addColumnIfMissing("chunk_control", "group_id", "INTEGER");
+    }
+
+    /** 幂等地给表加一列。列已存在时静默返回。 */
+    private void addColumnIfMissing(String table, String column, String type) throws SQLException {
+        boolean exists = withConnection(conn -> {
+            try (Statement st = conn.createStatement();
+                 var rs = st.executeQuery("PRAGMA table_info(" + table + ")")) {
+                while (rs.next()) {
+                    if (column.equalsIgnoreCase(rs.getString("name"))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+        if (exists) {
+            return;
+        }
+        lock.lock();
+        try (Statement st = connection.createStatement()) {
+            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+            LOG.info("数据库迁移：已为 " + table + " 添加列 " + column + " " + type);
+        } catch (SQLException e) {
+            throw new SQLException("迁移失败（为 " + table + " 添加 " + column + "）: " + e.getMessage(), e);
         } finally {
             lock.unlock();
         }

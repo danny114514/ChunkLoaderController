@@ -58,16 +58,20 @@ public final class GuiListener implements Listener {
         Inventory top = event.getView().getTopInventory();
         boolean rightClick = event.isRightClick();
         boolean leftClick = event.isLeftClick();
+        // Shift+左键 是「加入/移出群组」的独立入口：
+        // 普通左右键改加载状态，Shift 改分组，两个维度分开。
+        boolean shiftClick = event.isShiftClick();
 
-        // 中键/Shift 之类的操作不当作升级降级
+        // 中键之类的操作不当作升级降级
         if (!leftClick && !rightClick) {
             return;
         }
 
         try {
             if (map) {
-                plugin.mapGui().handleClick(player, top, slot, rightClick);
+                plugin.mapGui().handleClick(player, top, slot, rightClick, shiftClick);
             } else {
+                // 视图 B 里 Shift 没有特殊语义，仍然走普通逻辑
                 plugin.myChunksGui().handleClick(player, top, slot, rightClick);
             }
         } catch (RuntimeException e) {

@@ -183,13 +183,24 @@ public final class MyChunksGui {
     }
 
     private ItemStack buildChunkItem(Player player, World world, ChunkControl c) {
-        Material material = c.state() == ChunkState.STRONG
-                ? Material.LIME_STAINED_GLASS_PANE
-                : Material.YELLOW_STAINED_GLASS_PANE;
-
-        String stateColour = c.state() == ChunkState.STRONG ? "§a" : "§e";
+        // 三种有主状态各自的视觉：强=绿、弱=黄、保留=浅蓝。
+        // 保留必须与「未控制」的灰区分开 —— 灰看起来像空地，
+        // 而保留的区块其实是被占着的，别人拿不到。
+        Material material = switch (c.state()) {
+            case STRONG -> Material.LIME_STAINED_GLASS_PANE;
+            case WEAK -> Material.YELLOW_STAINED_GLASS_PANE;
+            case RESERVED -> Material.LIGHT_BLUE_STAINED_GLASS_PANE;
+            default -> Material.GRAY_STAINED_GLASS_PANE;
+        };
+        String stateColour = switch (c.state()) {
+            case STRONG -> "§a";
+            case WEAK -> "§e";
+            case RESERVED -> "§b";
+            default -> "§7";
+        };
         String name = "§f[" + c.chunkX() + ", " + c.chunkZ() + "] "
-                + stateColour + c.state().displayName();
+                + stateColour + c.state().displayName()
+                + (c.hasGroup() ? " §8· 群组" : "");
 
         List<String> lore = new ArrayList<>();
         // 实际等级（Lore 第一行）

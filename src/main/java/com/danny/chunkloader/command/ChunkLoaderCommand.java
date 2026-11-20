@@ -35,11 +35,13 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
     private final ChunkLoaderPlugin plugin;
     private final PlayerCommands players;
     private final AdminCommands admins;
+    private final GroupCommands groups;
 
     public ChunkLoaderCommand(ChunkLoaderPlugin plugin) {
         this.plugin = plugin;
         this.players = new PlayerCommands(plugin);
         this.admins = new AdminCommands(plugin);
+        this.groups = new GroupCommands(plugin);
     }
 
     @Override
@@ -53,6 +55,7 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
             case "set" -> players.set(sender, args);
             case "release" -> players.releaseAll(sender, args);
             case "admin" -> admins.dispatch(sender, args);
+            case "group", "g" -> groups.dispatch(sender, args);
             case "help" -> {
                 printHelp(sender);
                 yield true;
@@ -106,7 +109,8 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage("§f/cl §8- 打开周围区块地图（GUI）");
             sender.sendMessage("§f/cl info §8- 脚下区块的持有者 / 意图状态 / 实际等级 / 配额");
             sender.sendMessage("§f/cl list [页] §8- 列出自己受控的区块");
-            sender.sendMessage("§f/cl set <weak|strong|none> §8- 设置脚下区块");
+            sender.sendMessage("§f/cl set <weak|strong|reserve|none> §8- 设置脚下区块");
+            sender.sendMessage("§f/cl group <...> §8- 群组：批量管理一批区块（见 /cl group）");
             sender.sendMessage("§f/cl release all §8- 释放自己的全部区块");
             sender.sendMessage("§f/cl admin <...> §8- 管理员命令（见 /cl admin）");
         } else {
@@ -122,8 +126,8 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
         }
 
         CommandSupport.divider(sender);
-        sender.sendMessage("§7状态说明：§a强加载§7=实体刻运行（31） · §e弱加载§7=仅方块刻（32）");
-        sender.sendMessage("§7弱加载：作物/熔炉/漏斗正常，§c实体冻结§7（掉落物不动、怪物不动、刷怪塔不产出）");
+        sender.sendMessage("§7状态：§a强加载§7=实体刻+方块刻（31） · §e弱加载§7=仅方块刻（32）");
+        sender.sendMessage("§7      §b保留§7=不加载但归你所有，他人无法认领 · §7未控制§7=无主，谁都能占");
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -133,18 +137,32 @@ public final class ChunkLoaderCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(List.of("info", "list", "set", "release", "admin", "help"), args[0]);
+            return filter(List.of("info", "list", "set", "release", "group", "admin", "help"), args[0]);
         }
         String first = args[0].toLowerCase(Locale.ROOT);
 
         if ("admin".equals(first)) {
             return completeAdmin(sender, args);
         }
+        if (("group".equals(first) || "g".equals(first))) {
+            return completeGroup(sender, args);
+        }
         if ("set".equals(first) && args.length == 2) {
-            return filter(List.of("weak", "strong", "none"), args[1]);
+            return filter(List.of("weak", "strong", "reserve", "none"), args[1]);
         }
         if ("release".equals(first) && args.length == 2) {
             return filter(List.of("all"), args[1]);
+        }
+        return List.of();
+    }
+
+    private List<String> completeGroup(CommandSender sender, String[] args) {
+        if (args.length == 2) {
+            return filter(List.of("create", "delete", "rename", "list", "show",
+                    "add", "remove", "set"), args[1]);
+        }
+        if (sender instanceof Player player) {
+            return groups.complete(player, args);
         }
         return List.of();
     }

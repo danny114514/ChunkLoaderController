@@ -185,13 +185,16 @@ public final class PlayerCommands {
             return true;
         }
         if (args.length < 2) {
-            sender.sendMessage("§c用法: /cl set <weak|strong|none>");
-            sender.sendMessage("§7  weak=弱加载(32) · strong=强加载(31) · none=释放");
+            sender.sendMessage("§c用法: /cl set <weak|strong|reserve|none>");
+            sender.sendMessage("§7  weak=弱加载(32) · strong=强加载(31)");
+            sender.sendMessage("§7  reserve=保留（不加载，但区块仍归你，他人无法认领）");
+            sender.sendMessage("§7  none=释放（放弃归属，他人可以认领）");
             return true;
         }
         ChunkState target = ChunkState.parse(args[1]);
         if (target == null) {
-            sender.sendMessage("§c无法识别的状态: " + args[1] + "（可用: weak / strong / none）");
+            sender.sendMessage("§c无法识别的状态: " + args[1]
+                    + "（可用: weak / strong / reserve / none）");
             return true;
         }
         return applyToFeetChunk(sender, player, target);

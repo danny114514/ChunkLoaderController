@@ -35,6 +35,10 @@ public record PluginConfig(
         String language,
         int weakTicketLevel,
         int strongTicketLevel,
+        // ── 彩蛋 ──
+        // 配置里只放「开关 + 两个行为参数」，具体含义不写进 config.yml。
+        // 注释一律不描述触发方式与效果 —— 配置文件和 README 是所有人都会
+        // 打开的东西，把机制写在那里等于提前公布答案。
         boolean easterEggEnabled,
         String easterEggMode,
         int easterEggCooldownSeconds

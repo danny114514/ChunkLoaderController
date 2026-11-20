@@ -147,7 +147,8 @@ public final class ChunkControlService {
             String msg = switch (target) {
                 case WEAK -> "已设为弱加载（32）：方块刻继续，实体刻冻结。";
                 case STRONG -> "已设为强加载（31）：实体刻与方块刻全部运行。";
-                case UNCONTROLLED -> "已释放该区块，恢复为原版自动加载。";
+                case RESERVED -> "已设为保留：不加载任何内容，但区块仍属于你，他人无法认领。";
+                case UNCONTROLLED -> "已释放该区块，恢复为原版自动加载（他人现在可以认领）。";
             };
             return new Outcome(AuditResult.OK, msg, true);
         } catch (SQLException e) {
@@ -263,16 +264,20 @@ public final class ChunkControlService {
         } else if (state == ChunkState.STRONG) {
             tickets.setStrong(world, chunkX, chunkZ);
         }
-        // UNCONTROLLED：clear 已经完成全部工作
+        // UNCONTROLLED 与 RESERVED：clear 已经完成全部工作 ——
+        // 两者都不加 ticket，区别只在数据库里有没有主。
     }
 
     private static AuditAction resolveAction(ChunkState target, boolean bypassOwnership) {
         if (bypassOwnership) {
             return AuditAction.ADMIN_SET;
         }
-        return target == ChunkState.STRONG ? AuditAction.SET_STRONG
-                : target == ChunkState.WEAK ? AuditAction.SET_WEAK
-                : AuditAction.RELEASE;
+        return switch (target) {
+            case STRONG -> AuditAction.SET_STRONG;
+            case WEAK -> AuditAction.SET_WEAK;
+            case RESERVED -> AuditAction.SET_RESERVED;
+            case UNCONTROLLED -> AuditAction.RELEASE;
+        };
     }
 
     private Outcome deny(UUID actor, UUID owner, ChunkKey key, AuditAction action,

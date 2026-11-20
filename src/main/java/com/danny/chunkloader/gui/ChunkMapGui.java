@@ -3,6 +3,7 @@ package com.danny.chunkloader.gui;
 import com.danny.chunkloader.ChunkLoaderPlugin;
 import com.danny.chunkloader.command.LevelText;
 import com.danny.chunkloader.model.ChunkControl;
+import com.danny.chunkloader.model.ChunkGroup;
 import com.danny.chunkloader.model.ChunkKey;
 import com.danny.chunkloader.model.ChunkState;
 import com.danny.chunkloader.service.ChunkControlService;
@@ -248,6 +249,9 @@ public final class ChunkMapGui {
             case UNCONTROLLED -> Material.GRAY_STAINED_GLASS_PANE;
             case WEAK -> Material.YELLOW_STAINED_GLASS_PANE;
             case STRONG -> Material.LIME_STAINED_GLASS_PANE;
+            // 保留用浅蓝：与「未控制」的灰必须一眼区分开 ——
+            // 灰色看起来像空地，会让人以为可以捡。
+            case RESERVED -> Material.LIGHT_BLUE_STAINED_GLASS_PANE;
         };
 
         // ── 名称：[绝对区块X, 绝对区块Z] + 状态 ────────────────────────────
@@ -322,6 +326,9 @@ public final class ChunkMapGui {
         return switch (intended) {
             case WEAK -> actualLevel == LevelText.WEAK || actualLevel <= LevelText.STRONG;
             case STRONG -> actualLevel <= LevelText.STRONG;
+            // 保留态的正确表现就是「没加载」—— 原版视距内它本来会被加载，
+            // 那种情况下不该显示「正在应用…」，那是正常现象不是延迟。
+            case RESERVED -> true;
             case UNCONTROLLED -> actualLevel > LevelText.BORDER;
         };
     }
@@ -331,6 +338,7 @@ public final class ChunkMapGui {
             case UNCONTROLLED -> "§7";
             case WEAK -> "§e";
             case STRONG -> "§a";
+            case RESERVED -> "§b";
         };
     }
 
@@ -344,15 +352,22 @@ public final class ChunkMapGui {
                         "§8与 F3 的 Chunk: 行一致，可直接对照",
                         "§8Lore 里另有该区块的方块坐标范围",
                         "",
-                        "§7灰 §f未控制 §8- 原版自动加载，插件不管",
+                        "§7灰 §f未控制 §8- 无主，原版自动加载",
                         "§e黄 §f弱加载 §8(32) - 方块刻运行，§c实体冻结",
                         "§a绿 §f强加载 §8(31) - 实体刻与方块刻全运行",
+                        "§b蓝 §f保留 §8- 不加载，但仍归其主人所有",
+                        "",
+                        "§7「未控制」和「保留」的区别很重要：",
+                        "§8§o未控制 = 谁都能占；保留 = 别人抢不走。",
                         "",
                         "§7Lore 里的「实际」是运行时真实等级，",
                         "§7可能与你的设置不同（玩家附近本来就已加载）。",
                         "",
                         "§7边界区块（33）仅加载不计算，",
                         "§8§o不可手动设置 —— 由原版自动产生。",
+                        "",
+                        "§7左键升级 · 右键降级",
+                        "§7Shift+左键 = 加入/移出群组",
                         "",
                         "§b▶ §7= 打开地图时你所在的区块")));
 
@@ -421,9 +436,12 @@ public final class ChunkMapGui {
     /**
      * 处理点击。
      *
+     * @param rightClick 是否右键（降级）
+     * @param shiftClick 是否按住 Shift（加入群组，与改加载状态互不干扰）
      * @return true 表示已处理（调用方应 cancel 事件）
      */
-    public boolean handleClick(Player player, Inventory inv, int slot, boolean rightClick) {
+    public boolean handleClick(Player player, Inventory inv, int slot,
+                              boolean rightClick, boolean shiftClick) {
         Session session = sessions.get(player.getUniqueId());
         if (session == null) {
             // 走到这里意味着：玩家看到的是我们的界面，但点到的实例上没有会话。
@@ -476,11 +494,23 @@ public final class ChunkMapGui {
         int chunkX = chunk[0];
         int chunkZ = chunk[1];
 
+        // ── Shift+左键 = 加入群组 ─────────────────────────────────────────
+        // 普通左右键仍然改加载状态，Shift 是独立入口 ——
+        // 这样「管理加载」和「管理归属」不会被同一次点击混淆。
+        if (shiftClick && !rightClick) {
+            return handleShiftClick(player, session, chunkX, chunkZ);
+        }
+
         // ── 归属检查：他人区块不可动 ───────────────────────────────────────
         Optional<ChunkControl> rec = plugin.control()
                 .find(session.worldName, chunkX, chunkZ);
         if (rec.isPresent() && !rec.get().isOwnedBy(player.getUniqueId())) {
-            player.sendMessage("§c该区块已被其他玩家控制，你无法修改。");
+            ChunkControl other = rec.get();
+            if (other.state() == ChunkState.RESERVED) {
+                player.sendMessage("§c该区块被其他玩家保留着（不加载，但对方没有放弃它）。");
+            } else {
+                player.sendMessage("§c该区块已被其他玩家控制，你无法修改。");
+            }
             return true;
         }
 
@@ -519,6 +549,55 @@ public final class ChunkMapGui {
             }
         } else {
             player.sendMessage("§c" + outcome.message());
+        }
+        return true;
+    }
+
+    /**
+     * Shift+左键：把区块加入群组。
+     *
+     * <p>交互设计：普通左右键改「加载状态」，Shift+左键改「归属/分组」。
+     * 两者分开是因为它们是不同维度的事 —— 把区块加进群组不该顺手改变它的加载状态。</p>
+     *
+     * <p>如果玩家一个群组都没有，直接告诉他先建一个，而不是静默失败。</p>
+     */
+    private boolean handleShiftClick(Player player, Session session, int chunkX, int chunkZ) {
+        List<ChunkGroup> groups = plugin.groups().listGroups(player.getUniqueId());
+        if (groups.isEmpty()) {
+            player.sendMessage("§c你还没有任何群组。先创建一个：§f/cl group create <名字>");
+            player.sendMessage("§7建好之后，Shift+左键 就能把区块加进去。");
+            return true;
+        }
+        // 有多个群组时用最后一个（最近创建的）作为默认目标，并在消息里说清楚。
+        // 这样单群组的玩家不需要任何额外操作，多群组的玩家也总能知道发生了什么。
+        ChunkGroup target = groups.get(groups.size() - 1);
+
+        // 已经有群组归属的区块：Shift+左键 改成「移出」
+        Optional<ChunkControl> rec = plugin.control().find(session.worldName, chunkX, chunkZ);
+        if (rec.isPresent() && rec.get().hasGroup()
+                && rec.get().isOwnedBy(player.getUniqueId())) {
+            var outcome = plugin.groups().removeChunk(
+                    player.getUniqueId(), player.getWorld(), chunkX, chunkZ);
+            player.sendMessage((outcome.ok() ? "§a" : "§c") + outcome.message());
+            if (outcome.ok() && outcome.changed()) {
+                renderSingleChunk(player.getOpenInventory().getTopInventory(), player,
+                        session, chunkX, chunkZ);
+                player.updateInventory();
+            }
+            return true;
+        }
+
+        var outcome = plugin.groups().addChunk(
+                player.getUniqueId(), target.name(), player.getWorld(), chunkX, chunkZ);
+        player.sendMessage((outcome.ok() ? "§a" : "§c") + outcome.message());
+        if (groups.size() > 1) {
+            player.sendMessage("§7（目标群组是最近创建的「" + target.name()
+                    + "」；想指定别的请用 /cl group add <名字>）");
+        }
+        if (outcome.ok() && outcome.changed()) {
+            renderSingleChunk(player.getOpenInventory().getTopInventory(), player,
+                    session, chunkX, chunkZ);
+            player.updateInventory();
         }
         return true;
     }
